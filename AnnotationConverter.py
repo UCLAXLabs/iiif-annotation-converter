@@ -118,7 +118,7 @@ for r in annotData['resources']:
   # The 'full' field looks like this: "http://marinus.library.ucla.edu/images/kabuki/canvas/ucla_bib1987273_no005_rs_001.tif.json"
   # Usually it doesn't resolve to anything -- it's usually just a canvas (?) ID
   canvasID = region['full']
-  imageID = canvasID.split('/')[-1].replace('.json','') + ".jpg"
+  imageID = canvasID.split('/')[-1].replace('.json','').replace('.tif','').replace('.png','').replace('.jpg','') + ".jpg"
   
   if imageID not in imageAnnotations:
     imageAnnotations[imageID] = []
@@ -164,7 +164,7 @@ for r in annotData['resources']:
   #croppedImageID = imageID + '.' + ",".join(list(map(str, cropBox))) + '.jpg'
 
 for imageID in imageAnnotations:
-  xmlID = imageID.replace('jpg', 'xml')
+  xmlID = imageID.replace('.jpg', '').replace('.png', '').replace('.tif', '')
   print("writing XML annotation file " + xmlID)
   root = etree.Element("annotation")
   folder = etree.SubElement(root, "folder")
@@ -201,7 +201,7 @@ for imageID in imageAnnotations:
     yma = etree.SubElement(bbox, "ymax")
     yma.text = str(anno['bbox'][3])
   
-  xmlPath = os.path.join(xmlsFolder, xmlID)
+  xmlPath = os.path.join(xmlsFolder, xmlID + '.xml')
   with open(xmlPath, 'wb') as xmlFile:
     et = etree.ElementTree(root)
     et.write(xmlFile, pretty_print=True)
@@ -209,7 +209,8 @@ for imageID in imageAnnotations:
 trainingListFile = os.path.join(annotationsFolder, 'trainval.txt')
 with open(trainingListFile, 'w') as trainingList:
   for imageID in trainingImages:
-    trainingList.write(imageID + "\n")
+    baseID = imageID.replace('.png', '').replace('.jpg', '').replace('.tif', '')
+    trainingList.write(baseID + "\n")
 
 labelMapFile = os.path.join(os.getcwd(), 'label_map.pbtxt')
 with open(labelMapFile, 'w') as labelMap:
