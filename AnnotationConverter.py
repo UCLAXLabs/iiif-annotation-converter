@@ -16,7 +16,7 @@ from lxml import etree
 # same ratios as the full image (see above), in an appropriate format for machine learning
 # work -- 
 
-projectName = 'kabuki'
+projectName = 'edo_illustrations'
 
 # Keys: manifest URL. Values: dictionary of key: canvas ID, value: image data from manifest
 maniMappings = {}
@@ -82,11 +82,12 @@ def processManifest(maniData):
         theseMappings[canvasID] = image
   return theseMappings
 
-jsonPath = "/Users/broadwell/Dropbox/Library/HYU_MA/marinus_annotations_9-7.json"
+#jsonPath = "/Users/broadwell/Dropbox/Library/HYU_MA/marinus_annotations_9-7.json"
+#jsonFile = open(jsonPath, 'r')
+#annotData = json.load(jsonFile)
 
-jsonFile = open(jsonPath, 'r')
-
-annotData = json.load(jsonFile)
+annotationURL = "http://marinus.library.ucla.edu/viewer/annotation/"
+annotData = getURL(annotationURL).json()
 
 for r in annotData['resources']:
   rID = r['@id']
