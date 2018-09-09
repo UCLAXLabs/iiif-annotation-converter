@@ -48,6 +48,7 @@ except:
 try:
   if (not os.path.exists(annotationsFolder)):
     os.makedirs(annotationsFolder)
+  if (not os.path.exists(xmlsFolder)):
     os.makedirs(xmlsFolder)
 except:
   print("Unable to create annotations folders, exiting")
@@ -170,7 +171,7 @@ for imageID in imageAnnotations:
   folder = etree.SubElement(root, "folder")
   folder.text = projectName
   fn = etree.SubElement(root, "filename")
-  fn.text = xmlID
+  fn.text = xmlID + '.jpg'
   sz = etree.SubElement(root, "size")
   wd = etree.SubElement(sz, "width")
   wd.text = str(resizedWidth)
