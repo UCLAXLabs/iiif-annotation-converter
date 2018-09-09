@@ -26,6 +26,8 @@ trainingImages = {}
 # Keys: imageID. Values: array of dictionaries of annotations with tags and bounding boxes
 imageAnnotations = {}
 
+allTags = set()
+
 cacheEnabled = True
 cachePath = os.path.join(os.getcwd(), 'cache/')
 
@@ -188,6 +190,7 @@ for imageID in imageAnnotations:
     else:
       thisTag = anno["tags"][0]
     name.text = thisTag
+    allTags.add(thisTag)
     bbox = etree.SubElement(obj, "bndbox")
     xmi = etree.SubElement(bbox, "xmin")
     xmi.text = str(anno['bbox'][0])
@@ -207,3 +210,10 @@ trainingListFile = os.path.join(annotationsFolder, 'trainval.txt')
 with open(trainingListFile, 'w') as trainingList:
   for imageID in trainingImages:
     trainingList.write(imageID + "\n")
+
+labelMapFile = os.path.join(os.getcwd(), 'label_map.pbtxt')
+with open(labelMapFile, 'w') as labelMap:
+  tagCount = 1
+  for tag in allTags:
+    labelMap.write("item {\n id: " + str(tagCount) + "\n name: '" + tag + "'\n display_name: '" + tag + "'\n}\n")
+    tagCount += 1
