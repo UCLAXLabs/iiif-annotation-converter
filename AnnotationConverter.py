@@ -37,6 +37,21 @@ imagesFolder = os.path.join(os.getcwd(), 'images/')
 annotationsFolder = os.path.join(os.getcwd(), 'annotations/')
 xmlsFolder = os.path.join(annotationsFolder, 'xmls/')
 
+clipImages = False
+outputFolder = os.path.join(os.getcwd(), 'output/')
+if (clipImages):
+  try:
+    if (not os.path.exists(outputFolder)):
+      os.makedirs(outputFolder)
+  except:
+    print("Unable to create clippings folder, won't save them")
+    clipImages = False
+
+# Set to True to save resized versions of *all* images in any collection
+# manifests referenced in the annotations manifests -- convenient if
+# you're planning to run a trained model against all possible images
+harvestAll = True
+
 try:
   if (not os.path.exists(imagesFolder)):
     os.makedirs(imagesFolder)
@@ -81,9 +96,33 @@ def processManifest(maniData):
     for canvas in sequence['canvases']:
       canvasID = canvas['@id']
       for image in canvas['images']:
-        #imageURL = image['resource']['@id']
+        fullURL = image['resource']['@id']
+        imageID = canvasID.split('/')[-1].replace('.json','').replace('.tif','').replace('.png','').replace('.jpg','') + ".jpg"
+  
+        # If it's in trainingImages, it has already been downloaded
+        if (harvestAll and (imageID not in trainingImages)):
+          outputPath = os.path.join(imagesFolder, imageID)
+          if (not os.path.isfile(outputPath)):
+            resizedURL = fullURL.replace('full/full','full/!1000,1000')
+            imageResponse = getURL(resizedURL)
+            im = Image.open(BytesIO(imageResponse.content))
+    
+            with open(outputPath, 'w') as outputFile:
+              print("harvesting cropped image " + imageID)
+              im.save(outputFile, 'jpeg')
+
         theseMappings[canvasID] = image
   return theseMappings
+
+# Map original tags onto a smaller domain
+def reduceTags(tagList):
+  if ("figure" in tagList):
+    thisTag = "figure"
+  elif ("animal" in tagList):
+    thisTag = "animal"
+  else:
+    thisTag = tagList[0]
+  return thisTag
 
 #jsonPath = "/Users/broadwell/Dropbox/Library/HYU_MA/marinus_annotations_9-7.json"
 #jsonFile = open(jsonPath, 'r')
@@ -113,9 +152,10 @@ for r in annotData['resources']:
     manifestData = getURL(srcManifest).json()
     newMappings = processManifest(manifestData)
     maniMappings[srcManifest] = newMappings
-
+ 
   bbox = region['selector']['default']['value'] # xywh=X,Y,W,H
-  xywh = list(map(int, bbox.split('=')[1].split(',')))
+  xywhString = bbox.split('=')[1]
+  xywh = list(map(int, xywhString.split(',')))
   # The 'full' field looks like this: "http://marinus.library.ucla.edu/images/kabuki/canvas/ucla_bib1987273_no005_rs_001.tif.json"
   # Usually it doesn't resolve to anything -- it's usually just a canvas (?) ID
   canvasID = region['full']
@@ -160,11 +200,32 @@ for r in annotData['resources']:
   thisAnnotation = {'tags': tags, 'bbox': resizedCropBox} 
   imageAnnotations[imageID].append(thisAnnotation)
 
-  # This is how to format a request for the full-res contents of the bbox
-  #croppedImage = im.crop(cropBox)
-  #croppedImageID = imageID + '.' + ",".join(list(map(str, cropBox))) + '.jpg'
+  # This saves all of the training regions in the 'output/' folder
+  if (clipImages):
+    thisTag = reduceTags(tags)
+    # This is how to format a request for the full-res contents of the bbox
+    croppedURL = fullURL.replace('full/full', xywhString + '/full')
+    # NOTE: The version below resizes the cropped image to 1000 pixels on its
+    # longest side; it does not seem to be possible to resize the entire image 
+    # first and THEN crop it (?) using IIIF
+    #croppedURL = resizedURL.replace('full/!1000,1000', xywhString + '/!1000,1000')
+    croppedResponse = getURL(croppedURL)
+    # We could also grab the full image and crop it (or resize and then crop 
+    # it), but it's better to make the image server do the work
+    #croppedImage = im.crop(cropBox)
+    
+    croppedImage = Image.open(BytesIO(croppedResponse.content))
+    croppedImageID = imageID + '.' + xywhString + '_' + thisTag + '.jpg'
+    #resizedWidth, resizedHeight = croppedImage.size
+    
+    croppedPath = os.path.join(outputFolder, croppedImageID)
+
+    with open(croppedPath, 'w') as croppedFile:
+      print("saving cropped image " + croppedImageID)
+      croppedImage.save(croppedFile, 'jpeg')
 
 for imageID in imageAnnotations:
+  resizedWidth, resizedHeight = trainingImages[imageID]
   xmlID = imageID.replace('.jpg', '').replace('.png', '').replace('.tif', '')
   print("writing XML annotation file " + xmlID)
   root = etree.Element("annotation")
@@ -184,12 +245,7 @@ for imageID in imageAnnotations:
   for anno in imageAnnotations[imageID]:
     obj = etree.SubElement(root, "object")
     name = etree.SubElement(obj, "name") # This is the tag
-    if ("figure" in anno["tags"]):
-      thisTag = "figure"
-    elif ("animal" in anno["tags"]):
-      thisTag = "animal"
-    else:
-      thisTag = anno["tags"][0]
+    thisTag = reduceTags(anno["tags"])
     name.text = thisTag
     allTags.add(thisTag)
     bbox = etree.SubElement(obj, "bndbox")
