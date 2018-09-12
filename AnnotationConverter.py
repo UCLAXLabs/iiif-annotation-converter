@@ -8,15 +8,29 @@ from PIL import Image
 from io import BytesIO
 from lxml import etree
 
-# Given a IIIF annotation "activity stream" (basically a manifest with annotation data),
-# - request all of the annotated images, RESIZED to the desired dimensions for maching
+# Given links to one or more IIIF annotation "activity streamw" (basically lists of annotations 
+# in manifest-like format):
+#
+# 1) request all of the annotated images, RESIZED to the desired dimensions for maching
 # learning (this is usually not more than 1000 pixels on the shortest side) and save them
 # as JPEGs or whatever
-# - output the annotation bounding boxes and tags, with the bounding boxes resized at the
-# same ratios as the full image (see above), in an appropriate format for machine learning
-# work -- 
+#
+# 2) output the annotation bounding boxes and tags, with the bounding boxes resized at the
+# same ratios as the full image (see above), in appropriate formats to train machine
+# learning models. This project uses the Tensorflow object detection libraries, so the
+# necessary outputs are as follows:
+#
+# label_map.pbtxt -- a mapping of label numbers to names (can be linked data URIs) and display_names
+# annotations/trainval.txt -- a list of the downloaded/resized image filenames *without extensions*
+# annotaions/xmls/*.xml -- one XML file per annotated image, in PASCAL VOC annotation format
 
 projectName = 'edo_illustrations'
+
+# Can include more than one source of annotations here
+annotationURLs = ["http://marinus.library.ucla.edu/viewer/annotation/"]
+
+#allowedManifests = None
+allowedManifests = ['http://marinus.library.ucla.edu/images/kabuki/manifest.json']
 
 # Keys: manifest URL. Values: dictionary of key: canvas ID, value: image data from manifest
 maniMappings = {}
@@ -50,6 +64,7 @@ if (clipImages):
 # Set to True to save resized versions of *all* images in any collection
 # manifests referenced in the annotations manifests -- convenient if
 # you're planning to run a trained model against all possible images
+# locally (without re-fetching the images from their IIIF servers)
 harvestAll = True
 
 try:
@@ -128,102 +143,111 @@ def reduceTags(tagList):
 #jsonFile = open(jsonPath, 'r')
 #annotData = json.load(jsonFile)
 
-annotationURL = "http://marinus.library.ucla.edu/viewer/annotation/"
-annotData = getURL(annotationURL).json()
+for annotationURL in annotationURLs:
+  annotData = getURL(annotationURL).json()
 
-for r in annotData['resources']:
-  rID = r['@id']
-  rType = r['@type']
-  if (rType != 'oa:Annotation'):
-    continue
-  tags = []
-  for ann in r['resource']:
-    # If it has "@type" : "dctypes:Text" then this is a transcription
-    # If it has "@type" : "oa:Tag" then this is a tag -- deal with it
-    if (ann['@type'] == 'oa:Tag'):
-      val = ann['chars']
-      if ((val != "") and (val not in tags)):
-        tags.append(val)
+  for r in annotData['resources']:
+    rID = r['@id']
+    rType = r['@type']
+    if (rType != 'oa:Annotation'):
+      continue
+   
+    # XXX Technically the annotation can be instantiated on more than one image source.
+    # Not sure how often this will happen. For now we just use the first one
+    region = r['on'][0]
+    srcManifest = region['within']['@id'] # this is usually "@type" : "sc:Manifest"
 
-  region = r['on'][0]
-  srcManifest = region['within']['@id'] # this is usually "@type" : "sc:Manifest"
+    if ((allowedManifests is not None) and (srcManifest not in allowedManifests)):
+      print("Annotation source not in list of allowed manifests, skipping:", srcManifest)
+      continue
 
-  if (srcManifest not in maniMappings):
-    manifestData = getURL(srcManifest).json()
-    newMappings = processManifest(manifestData)
-    maniMappings[srcManifest] = newMappings
- 
-  bbox = region['selector']['default']['value'] # xywh=X,Y,W,H
-  xywhString = bbox.split('=')[1]
-  xywh = list(map(int, xywhString.split(',')))
-  # The 'full' field looks like this: "http://marinus.library.ucla.edu/images/kabuki/canvas/ucla_bib1987273_no005_rs_001.tif.json"
-  # Usually it doesn't resolve to anything -- it's usually just a canvas (?) ID
-  canvasID = region['full']
-  imageID = canvasID.split('/')[-1].replace('.json','').replace('.tif','').replace('.png','').replace('.jpg','') + ".jpg"
+    # Download the full source manifest if we haven't seen it before
+    if (srcManifest not in maniMappings):
+      manifestData = getURL(srcManifest).json()
+      newMappings = processManifest(manifestData)
+      maniMappings[srcManifest] = newMappings
+
+    tags = []
+    for ann in r['resource']:
+      # If it has "@type" : "dctypes:Text" then this is a transcription
+      # If it has "@type" : "oa:Tag" then this is a tag -- deal with it
+      if (ann['@type'] == 'oa:Tag'):
+        val = ann['chars']
+        if ((val != "") and (val not in tags)):
+          tags.append(val)
+
+    bbox = region['selector']['default']['value'] # xywh=X,Y,W,H
+    xywhString = bbox.split('=')[1]
+    xywh = list(map(int, xywhString.split(',')))
+    # The 'full' field looks like this: "http://marinus.library.ucla.edu/images/kabuki/canvas/ucla_bib1987273_no005_rs_001.tif.json"
+    # Often it doesn't resolve to anything -- it's typically just a canvas (?) ID
+    canvasID = region['full']
+    imageID = canvasID.split('/')[-1].replace('.json','').replace('.tif','').replace('.png','').replace('.jpg','') + ".jpg"
   
-  if imageID not in imageAnnotations:
-    imageAnnotations[imageID] = []
+    if imageID not in imageAnnotations:
+      imageAnnotations[imageID] = []
 
-  # http://marinus.library.ucla.edu/loris/kabuki/ucla_bib1987273_no005_rs_001.tif/full/full/0/default.jpg
-  fullURL = maniMappings[srcManifest][canvasID]['resource']['@id']
-  fullWidth = maniMappings[srcManifest][canvasID]['resource']['width']
-  fullHeight = maniMappings[srcManifest][canvasID]['resource']['height']
+    # http://marinus.library.ucla.edu/loris/kabuki/ucla_bib1987273_no005_rs_001.tif/full/full/0/default.jpg
+    fullURL = maniMappings[srcManifest][canvasID]['resource']['@id']
+    fullWidth = maniMappings[srcManifest][canvasID]['resource']['width']
+    fullHeight = maniMappings[srcManifest][canvasID]['resource']['height']
       
-  if (imageID not in trainingImages):
-    resizedURL = fullURL.replace('full/full','full/!1000,1000')
-    imageResponse = getURL(resizedURL)
-    im = Image.open(BytesIO(imageResponse.content))
-    resizedWidth, resizedHeight = im.size
+    if (imageID not in trainingImages):
+      resizedURL = fullURL.replace('full/full','full/!1000,1000')
+      imageResponse = getURL(resizedURL)
+      im = Image.open(BytesIO(imageResponse.content))
+      resizedWidth, resizedHeight = im.size
     
-    outputPath = os.path.join(imagesFolder, imageID)
+      outputPath = os.path.join(imagesFolder, imageID)
 
-    with open(outputPath, 'w') as outputFile:
-      print("saving cropped image " + imageID)
-      im.save(outputFile, 'jpeg')
+      with open(outputPath, 'w') as outputFile:
+        print("saving cropped image " + imageID)
+        im.save(outputFile, 'jpeg')
       
-    trainingImages[imageID] = (resizedWidth, resizedHeight)
+      trainingImages[imageID] = (resizedWidth, resizedHeight)
 
-  else:
-    resizedWidth, resizedHeight = trainingImages[imageID]
+    else:
+      resizedWidth, resizedHeight = trainingImages[imageID]
 
-  # Format of cropBox: xmin, ymin, xmax, ymax
-  cropBox = (xywh[0], xywh[1], xywh[0] + xywh[2], xywh[1] + xywh[3])
+    # Format of cropBox: xmin, ymin, xmax, ymax
+    cropBox = (xywh[0], xywh[1], xywh[0] + xywh[2], xywh[1] + xywh[3])
 
-  widthRatio = float(resizedWidth) / float(fullWidth)
-  heightRatio = float(resizedHeight) / float(fullHeight)
+    widthRatio = float(resizedWidth) / float(fullWidth)
+    heightRatio = float(resizedHeight) / float(fullHeight)
 
-  resizedCropBox = (int(float(cropBox[0]) * widthRatio),
-                    int(float(cropBox[1]) * heightRatio),
-                    int(float(cropBox[2]) * widthRatio),
-                    int(float(cropBox[3]) * heightRatio))
+    resizedCropBox = (int(float(cropBox[0]) * widthRatio),
+                      int(float(cropBox[1]) * heightRatio),
+                      int(float(cropBox[2]) * widthRatio),
+                      int(float(cropBox[3]) * heightRatio))
 
-  thisAnnotation = {'tags': tags, 'bbox': resizedCropBox} 
-  imageAnnotations[imageID].append(thisAnnotation)
+    thisAnnotation = {'tags': tags, 'bbox': resizedCropBox} 
+    imageAnnotations[imageID].append(thisAnnotation)
 
-  # This saves all of the training regions in the 'output/' folder
-  if (clipImages):
-    thisTag = reduceTags(tags)
-    # This is how to format a request for the full-res contents of the bbox
-    croppedURL = fullURL.replace('full/full', xywhString + '/full')
-    # NOTE: The version below resizes the cropped image to 1000 pixels on its
-    # longest side; it does not seem to be possible to resize the entire image 
-    # first and THEN crop it (?) using IIIF
-    #croppedURL = resizedURL.replace('full/!1000,1000', xywhString + '/!1000,1000')
-    croppedResponse = getURL(croppedURL)
-    # We could also grab the full image and crop it (or resize and then crop 
-    # it), but it's better to make the image server do the work
-    #croppedImage = im.crop(cropBox)
+    # This saves all of the training regions in the 'output/' folder
+    if (clipImages):
+      thisTag = reduceTags(tags)
+      # This is how to format a request for the full-res contents of the bbox
+      croppedURL = fullURL.replace('full/full', xywhString + '/full')
+      # NOTE: The version below resizes the cropped image to 1000 pixels on its
+      # longest side; it does not seem to be possible to resize the entire image 
+      # first and THEN crop it (?) using IIIF
+      #croppedURL = resizedURL.replace('full/!1000,1000', xywhString + '/!1000,1000')
+      croppedResponse = getURL(croppedURL)
+      # We could also grab the full image and crop it (or resize and then crop 
+      # it), but it's better to make the image server do the work
+      #croppedImage = im.crop(cropBox)
     
-    croppedImage = Image.open(BytesIO(croppedResponse.content))
-    croppedImageID = imageID + '.' + xywhString + '_' + thisTag + '.jpg'
-    #resizedWidth, resizedHeight = croppedImage.size
+      croppedImage = Image.open(BytesIO(croppedResponse.content))
+      croppedImageID = imageID + '.' + xywhString + '_' + thisTag + '.jpg'
+      #resizedWidth, resizedHeight = croppedImage.size
     
-    croppedPath = os.path.join(outputFolder, croppedImageID)
+      croppedPath = os.path.join(outputFolder, croppedImageID)
 
-    with open(croppedPath, 'w') as croppedFile:
-      print("saving cropped image " + croppedImageID)
-      croppedImage.save(croppedFile, 'jpeg')
+      with open(croppedPath, 'w') as croppedFile:
+        print("saving cropped image " + croppedImageID)
+        croppedImage.save(croppedFile, 'jpeg')
 
+# Generate the output files
 for imageID in imageAnnotations:
   resizedWidth, resizedHeight = trainingImages[imageID]
   xmlID = imageID.replace('.jpg', '').replace('.png', '').replace('.tif', '')
