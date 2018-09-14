@@ -27,10 +27,11 @@ from lxml import etree
 projectName = 'edo_illustrations'
 
 # Can include more than one source of annotations here
-annotationURLs = ["http://marinus.library.ucla.edu/viewer/annotation/"]
+annotationURLs = ["http://marinus.library.ucla.edu/viewer/annotation/",
+                  "http://164.67.17.127:8888/annotation/"]
 
 #allowedManifests = None
-allowedManifests = ['http://marinus.library.ucla.edu/images/kabuki/manifest.json']
+allowedManifests = ['http://marinus.library.ucla.edu/images/kabuki/manifest.json', 'http://marinus.library.ucla.edu/images/gokan/manifest.json', 'http://164.67.17.127/images/kabuki/manifest.json']
 
 # Keys: manifest URL. Values: dictionary of key: canvas ID, value: image data from manifest
 maniMappings = {}
@@ -65,7 +66,7 @@ if (clipImages):
 # manifests referenced in the annotations manifests -- convenient if
 # you're planning to run a trained model against all possible images
 # locally (without re-fetching the images from their IIIF servers)
-harvestAll = True
+harvestAll = False
 
 try:
   if (not os.path.exists(imagesFolder)):
@@ -139,11 +140,19 @@ def reduceTags(tagList):
     thisTag = tagList[0]
   return thisTag
 
+def normalizeTag(tag):
+  if ((tag == 'samrai') or (tag == 'samuari')):
+    tag = 'samurai'
+  elif (tag == 'stading'):
+    tag = 'standing'
+  return tag
+
 #jsonPath = "/Users/broadwell/Dropbox/Library/HYU_MA/marinus_annotations_9-7.json"
 #jsonFile = open(jsonPath, 'r')
 #annotData = json.load(jsonFile)
 
 for annotationURL in annotationURLs:
+  print("Fetching annotations from",annotationURL)
   annotData = getURL(annotationURL).json()
 
   for r in annotData['resources']:
@@ -155,7 +164,10 @@ for annotationURL in annotationURLs:
     # XXX Technically the annotation can be instantiated on more than one image source.
     # Not sure how often this will happen. For now we just use the first one
     region = r['on'][0]
-    srcManifest = region['within']['@id'] # this is usually "@type" : "sc:Manifest"
+    if ('@id' in region['within']):
+      srcManifest = region['within']['@id'] # this is usually "@type" : "sc:Manifest"
+    else:
+      srcManifest = region['within']
 
     if ((allowedManifests is not None) and (srcManifest not in allowedManifests)):
       print("Annotation source not in list of allowed manifests, skipping:", srcManifest)
@@ -267,20 +279,21 @@ for imageID in imageAnnotations:
   seg = etree.SubElement(root, "segmented")
   seg.text = "0"
   for anno in imageAnnotations[imageID]:
-    obj = etree.SubElement(root, "object")
-    name = etree.SubElement(obj, "name") # This is the tag
-    thisTag = reduceTags(anno["tags"])
-    name.text = thisTag
-    allTags.add(thisTag)
-    bbox = etree.SubElement(obj, "bndbox")
-    xmi = etree.SubElement(bbox, "xmin")
-    xmi.text = str(anno['bbox'][0])
-    ymi = etree.SubElement(bbox, "ymin")
-    ymi.text = str(anno['bbox'][1])
-    xma = etree.SubElement(bbox, "xmax")
-    xma.text = str(anno['bbox'][2])
-    yma = etree.SubElement(bbox, "ymax")
-    yma.text = str(anno['bbox'][3])
+    for tag in anno["tags"]:
+      tag = normalizeTag(tag)
+      allTags.add(tag)
+      obj = etree.SubElement(root, "object")
+      name = etree.SubElement(obj, "name") # This is the tag
+      name.text = tag
+      bbox = etree.SubElement(obj, "bndbox")
+      xmi = etree.SubElement(bbox, "xmin")
+      xmi.text = str(anno['bbox'][0])
+      ymi = etree.SubElement(bbox, "ymin")
+      ymi.text = str(anno['bbox'][1])
+      xma = etree.SubElement(bbox, "xmax")
+      xma.text = str(anno['bbox'][2])
+      yma = etree.SubElement(bbox, "ymax")
+      yma.text = str(anno['bbox'][3])
   
   xmlPath = os.path.join(xmlsFolder, xmlID + '.xml')
   with open(xmlPath, 'wb') as xmlFile:
