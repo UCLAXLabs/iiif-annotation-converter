@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-r"""Adapted from https://github.com/bourdakos1/Custom-Object-Detection/blob/master/object_detection/create_tf_record.py
+"""Adapted from https://github.com/bourdakos1/Custom-Object-Detection/blob/master/object_detection/create_tf_record.py
 
 Convert a given dataset to TFRecord for object_detection.
 
@@ -44,10 +44,12 @@ from utils import label_map_util
 flags = tf.app.flags
 flags.DEFINE_string('data_dir', '', 'Root directory to raw dataset.')
 flags.DEFINE_string('output_dir', '', 'Path to directory to output TFRecords.')
-flags.DEFINE_string('label_map_path', 'label_map.pbtxt',
+flags.DEFINE_string('label_map_path', '',
                     'Path to label map proto')
 FLAGS = flags.FLAGS
 
+# Sample usage:
+# python3 create_tf_record.py --data_dir=/home/broadwell/tensorflow/iiif-annotation-converter/ --output_dir=. --label_map_path=data/label_map.pbtxt
 
 def get_class_name_from_filename(file_name):
   """Gets the class name from a file.
