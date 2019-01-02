@@ -27,11 +27,10 @@ from lxml import etree
 projectName = 'edo_illustrations'
 
 # Can include more than one source of annotations here
-annotationURLs = ["http://marinus.library.ucla.edu/viewer/annotation/",
-                  "http://164.67.17.127:8888/annotation/"]
+annotationURLs = ["https://marinus.library.ucla.edu/viewer/annotation/"]
 
 #allowedManifests = None
-allowedManifests = ['http://marinus.library.ucla.edu/images/kabuki/manifest.json', 'http://marinus.library.ucla.edu/images/gokan/manifest.json', 'http://164.67.17.127/images/kabuki/manifest.json']
+allowedManifests = ['https://marinus.library.ucla.edu/iiif/kabuki/manifest.json', 'https://marinus.library.ucla.edu/iiif/gokan/manifest.json']
 
 # Keys: manifest URL. Values: dictionary of key: canvas ID, value: image data from manifest
 maniMappings = {}
